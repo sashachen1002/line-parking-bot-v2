@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pytest_cache/
+.pytest_cache/
+.venv/
+venv/
+.env
+.env.*
+
+# Build artifacts
+dist/
+build/
+.eggs/
+*.egg-info/
+
+# VCS
+.git
+.gitignore
+.gitattributes
+
+# Editors/OS
+*.swp
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,27 @@
+[project]
+name = "line-ai-chatbot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.40.0",
+    "fastapi>=0.116.1",
+    "fastmcp>=2.11.2",
+    "flask>=3.1.1",
+    "ipykernel>=6.30.0",
+    "langchain>=0.3.27",
+    "langchain-aws>=0.2.30",
+    "langchain-community>=0.3.27",
+    "langchain-mcp-adapters>=0.1.9",
+    "langchain-openai>=0.3.28",
+    "langchain-tavily>=0.2.11",
+    "langgraph>=0.6.2",
+    "langgraph-checkpoint-postgres>=2.0.23",
+    "langgraph-cli[inmem]>=0.3.6",
+    "line-bot-sdk>=3.17.1",
+    "mangum>=0.19.0",
+    "psycopg[binary,pool]>=3.2.9",
+    "python-dotenv>=1.1.1",
+    "uvicorn>=0.35.0",
+]
