@@ -9,7 +9,7 @@ WORKDIR /var/task
 RUN pip install --no-cache-dir poetry
 
 # 4) 複製程式碼（確保 .dockerignore 已排除 .env）
-COPY pyproject.toml poetry.lock ./
+COPY pyproject.toml ./
 RUN poetry config virtualenvs.create false && poetry install --no-dev
 COPY . .
 
