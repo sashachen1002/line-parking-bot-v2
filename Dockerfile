@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir poetry
 
 # 4) 複製程式碼（確保 .dockerignore 已排除 .env）
 COPY pyproject.toml ./
+COPY README.md ./
 RUN poetry config virtualenvs.create false && poetry install
 COPY . .
 
