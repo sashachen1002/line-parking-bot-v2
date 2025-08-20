@@ -6,14 +6,11 @@ FROM public.ecr.aws/lambda/python:3.12
 WORKDIR /var/task
 
 # 3) 安裝相依
-RUN pip install --no-cache-dir \
-    Flask \
-    line-bot-sdk==3.* \
-    python-dotenv \
-    requests \
-    gunicorn
+RUN pip install --no-cache-dir poetry
 
 # 4) 複製程式碼（確保 .dockerignore 已排除 .env）
+COPY pyproject.toml poetry.lock ./
+RUN poetry config virtualenvs.create false && poetry install --no-dev
 COPY . .
 
 # 5) 啟用 Web Adapter（做為 Lambda Extension）
