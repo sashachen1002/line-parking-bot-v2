@@ -10,7 +10,7 @@ RUN pip install --no-cache-dir poetry
 
 # 4) 複製程式碼（確保 .dockerignore 已排除 .env）
 COPY pyproject.toml ./
-RUN poetry config virtualenvs.create false && poetry install --no-dev
+RUN poetry config virtualenvs.create false && poetry install
 COPY . .
 
 # 5) 啟用 Web Adapter（做為 Lambda Extension）
