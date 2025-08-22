@@ -5,13 +5,16 @@ FROM public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1 AS adapter
 FROM public.ecr.aws/lambda/python:3.12
 WORKDIR /var/task
 
-# 3) 安裝相依
+# 3) 安裝相依套件（新增 pandas 和 Google Sheets 相關套件）
 RUN pip install --no-cache-dir \
     Flask \
     line-bot-sdk==3.* \
     python-dotenv \
     requests \
-    gunicorn
+    gunicorn \
+    pandas>=2.0.3 \
+    gspread>=5.10.0 \
+    oauth2client>=4.1.3
 
 # 4) 複製程式碼（確保 .dockerignore 已排除 .env）
 COPY . .
