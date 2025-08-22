@@ -35,6 +35,7 @@ from linebot.v3.messaging.models import (
     PushMessageRequest,
 )
 from dotenv import load_dotenv
+import json
 
 # === Google Sheets API ===
 import gspread
@@ -72,16 +73,45 @@ user_state = {}
 user_location = {}
 user_selected_toilet = {}  # 紀錄使用者要評分的廁所
 
-# === 連線 Google Sheet ===
-try:
-    scope = ['https://spreadsheets.google.com/feeds']
-    creds = ServiceAccountCredentials.from_json_keyfile_name('data/tranquil-apogee-424105-h3-e118373644f0.json', scope)
-    client = gspread.authorize(creds)
-    sheet = client.open_by_key("1WgWnSofHnYnA40HhucWN9HzbcglkOF9-RqAgNyNAyng").sheet1
-    print("Google Sheet 連線成功")
-except Exception as e:
-    print(f"Google Sheet 連線失敗: {e}")
-    sheet = None
+# === 連線 Google Sheet (安全版本) ===
+def init_google_sheet():
+    try:
+        # 方法 1: 從環境變數讀取 JSON 內容
+        google_credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+        if google_credentials_json:
+            # 將環境變數的 JSON 字串轉為字典
+            creds_dict = json.loads(google_credentials_json)
+            scope = ['https://spreadsheets.google.com/feeds', 
+                    'https://www.googleapis.com/auth/drive']
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+            client = gspread.authorize(creds)
+            sheet_id = os.getenv("GOOGLE_SHEET_ID", "1WgWnSofHnYnA40HhucWN9HzbcglkOF9-RqAgNyNAyng")
+            sheet = client.open_by_key(sheet_id).sheet1
+            print("Google Sheet 連線成功 (環境變數)")
+            return sheet
+        
+        # 方法 2: 如果是本地開發，嘗試讀取檔案
+        elif os.path.exists('data/tranquil-apogee-424105-h3-e118373644f0.json'):
+            scope = ['https://spreadsheets.google.com/feeds',
+                    'https://www.googleapis.com/auth/drive']
+            creds = ServiceAccountCredentials.from_json_keyfile_name(
+                'data/tranquil-apogee-424105-h3-e118373644f0.json', scope)
+            client = gspread.authorize(creds)
+            sheet_id = os.getenv("GOOGLE_SHEET_ID", "1WgWnSofHnYnA40HhucWN9HzbcglkOF9-RqAgNyNAyng")
+            sheet = client.open_by_key(sheet_id).sheet1
+            print("Google Sheet 連線成功 (本地檔案)")
+            return sheet
+        
+        else:
+            print("Google Sheet 憑證未設定 - 評分功能將無法使用")
+            return None
+            
+    except Exception as e:
+        print(f"Google Sheet 連線失敗: {e}")
+        return None
+
+# 初始化 Google Sheet
+sheet = init_google_sheet()
 
 # === 載入公廁資料 ===
 try:
