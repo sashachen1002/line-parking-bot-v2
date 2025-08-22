@@ -1,4 +1,8 @@
-import os
+from linebot.v3.webhooks import (
+    MessageEvent,
+    TextMessageContent,
+    LocationMessageContent,
+)import os
 import re
 import requests
 from concurrent.futures import ThreadPoolExecutor
@@ -17,17 +21,11 @@ from linebot.v3.messaging import (
     ReplyMessageRequest,
     TextMessage,
     FlexMessage,
-    FlexContainer,
     QuickReply,
-    QuickReplyButton,
     MessageAction,
 )
-from linebot.v3.webhooks import (
-    MessageEvent,
-    TextMessageContent,
-    LocationMessageContent,
-)
 from linebot.v3.messaging.models import (
+    QuickReplyItem,
     StickerMessage,
     ShowLoadingAnimationRequest,
     PushMessageRequest,
@@ -389,11 +387,11 @@ def handle_message(event):
                 }
 
                 quick_reply = QuickReply(items=[
-                    QuickReplyButton(action=MessageAction(label="💩", text="評分_1")),
-                    QuickReplyButton(action=MessageAction(label="💩💩", text="評分_2")),
-                    QuickReplyButton(action=MessageAction(label="💩💩💩", text="評分_3")),
-                    QuickReplyButton(action=MessageAction(label="💩💩💩💩", text="評分_4")),
-                    QuickReplyButton(action=MessageAction(label="💩💩💩💩💩", text="評分_5")),
+                    QuickReplyItem(action=MessageAction(label="💩", text="評分_1")),
+                    QuickReplyItem(action=MessageAction(label="💩💩", text="評分_2")),
+                    QuickReplyItem(action=MessageAction(label="💩💩💩", text="評分_3")),
+                    QuickReplyItem(action=MessageAction(label="💩💩💩💩", text="評分_4")),
+                    QuickReplyItem(action=MessageAction(label="💩💩💩💩💩", text="評分_5")),
                 ])
                 
                 line_bot_api.reply_message(
@@ -450,8 +448,8 @@ def handle_message(event):
         elif text == "尋找附近停車位":
             if user_location.get(user_id):
                 quick_reply = QuickReply(items=[
-                    QuickReplyButton(action=MessageAction(label="用原本位置", text="停車位_原位置")),
-                    QuickReplyButton(action=MessageAction(label="重新定位", text="停車位_重新定位"))
+                    QuickReplyItem(action=MessageAction(label="用原本位置", text="停車位_原位置")),
+                    QuickReplyItem(action=MessageAction(label="重新定位", text="停車位_重新定位"))
                 ])
                 line_bot_api.reply_message(
                     ReplyMessageRequest(
@@ -489,8 +487,8 @@ def handle_message(event):
         elif text == "查詢公共廁所":
             if user_location.get(user_id):
                 quick_reply = QuickReply(items=[
-                    QuickReplyButton(action=MessageAction(label="用原本位置", text="廁所_原位置")),
-                    QuickReplyButton(action=MessageAction(label="重新定位", text="廁所_重新定位"))
+                    QuickReplyItem(action=MessageAction(label="用原本位置", text="廁所_原位置")),
+                    QuickReplyItem(action=MessageAction(label="重新定位", text="廁所_重新定位"))
                 ])
                 line_bot_api.reply_message(
                     ReplyMessageRequest(
