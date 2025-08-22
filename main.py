@@ -1,8 +1,4 @@
-from linebot.v3.webhooks import (
-    MessageEvent,
-    TextMessageContent,
-    LocationMessageContent,
-)import os
+import os
 import re
 import requests
 from concurrent.futures import ThreadPoolExecutor
@@ -29,6 +25,11 @@ from linebot.v3.messaging.models import (
     StickerMessage,
     ShowLoadingAnimationRequest,
     PushMessageRequest,
+)
+from linebot.v3.webhooks import (
+    MessageEvent,
+    TextMessageContent,
+    LocationMessageContent,
 )
 from dotenv import load_dotenv
 import json
