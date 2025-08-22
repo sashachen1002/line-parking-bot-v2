@@ -18,10 +18,8 @@ from linebot.v3.messaging import (
     TextMessage,
     FlexMessage,
     FlexContainer,
-    FlexCarousel,
-    FlexBubble,
     QuickReply,
-    QuickReplyItem,
+    QuickReplyButton,
     MessageAction,
 )
 from linebot.v3.webhooks import (
@@ -85,7 +83,7 @@ def init_google_sheet():
                     'https://www.googleapis.com/auth/drive']
             creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
             client = gspread.authorize(creds)
-            sheet_id = os.getenv("GOOGLE_SHEET_ID")
+            sheet_id = os.getenv("GOOGLE_SHEET_ID", "1WgWnSofHnYnA40HhucWN9HzbcglkOF9-RqAgNyNAyng")
             sheet = client.open_by_key(sheet_id).sheet1
             print("Google Sheet 連線成功 (環境變數)")
             return sheet
@@ -243,10 +241,15 @@ def send_parking_info(event):
                 ]
             }
         }
-        bubbles.append(FlexBubble.from_dict(bubble_data))
+        bubbles.append(bubble_data)
 
-    carousel = FlexCarousel(contents=bubbles)
-    flex_message = FlexMessage(alt_text="附近停車場清單", contents=carousel)
+    # 使用字典格式創建 Flex Message
+    flex_content = {
+        "type": "carousel",
+        "contents": bubbles
+    }
+    
+    flex_message = FlexMessage(alt_text="附近停車場清單", contents=flex_content)
     
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
@@ -328,10 +331,15 @@ def send_toilet_info(event, location):
                 ]
             }
         }
-        bubbles.append(FlexBubble.from_dict(bubble_data))
+        bubbles.append(bubble_data)
 
-    carousel = FlexCarousel(contents=bubbles)
-    flex_message = FlexMessage(alt_text="附近公共廁所清單", contents=carousel)
+    # 使用字典格式創建 Flex Message
+    flex_content = {
+        "type": "carousel",
+        "contents": bubbles
+    }
+    
+    flex_message = FlexMessage(alt_text="附近公共廁所清單", contents=flex_content)
     
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
@@ -381,11 +389,11 @@ def handle_message(event):
                 }
 
                 quick_reply = QuickReply(items=[
-                    QuickReplyItem(action=MessageAction(label="💩", text="評分_1")),
-                    QuickReplyItem(action=MessageAction(label="💩💩", text="評分_2")),
-                    QuickReplyItem(action=MessageAction(label="💩💩💩", text="評分_3")),
-                    QuickReplyItem(action=MessageAction(label="💩💩💩💩", text="評分_4")),
-                    QuickReplyItem(action=MessageAction(label="💩💩💩💩💩", text="評分_5")),
+                    QuickReplyButton(action=MessageAction(label="💩", text="評分_1")),
+                    QuickReplyButton(action=MessageAction(label="💩💩", text="評分_2")),
+                    QuickReplyButton(action=MessageAction(label="💩💩💩", text="評分_3")),
+                    QuickReplyButton(action=MessageAction(label="💩💩💩💩", text="評分_4")),
+                    QuickReplyButton(action=MessageAction(label="💩💩💩💩💩", text="評分_5")),
                 ])
                 
                 line_bot_api.reply_message(
@@ -442,8 +450,8 @@ def handle_message(event):
         elif text == "尋找附近停車位":
             if user_location.get(user_id):
                 quick_reply = QuickReply(items=[
-                    QuickReplyItem(action=MessageAction(label="用原本位置", text="停車位_原位置")),
-                    QuickReplyItem(action=MessageAction(label="重新定位", text="停車位_重新定位"))
+                    QuickReplyButton(action=MessageAction(label="用原本位置", text="停車位_原位置")),
+                    QuickReplyButton(action=MessageAction(label="重新定位", text="停車位_重新定位"))
                 ])
                 line_bot_api.reply_message(
                     ReplyMessageRequest(
@@ -481,8 +489,8 @@ def handle_message(event):
         elif text == "查詢公共廁所":
             if user_location.get(user_id):
                 quick_reply = QuickReply(items=[
-                    QuickReplyItem(action=MessageAction(label="用原本位置", text="廁所_原位置")),
-                    QuickReplyItem(action=MessageAction(label="重新定位", text="廁所_重新定位"))
+                    QuickReplyButton(action=MessageAction(label="用原本位置", text="廁所_原位置")),
+                    QuickReplyButton(action=MessageAction(label="重新定位", text="廁所_重新定位"))
                 ])
                 line_bot_api.reply_message(
                     ReplyMessageRequest(
@@ -549,10 +557,15 @@ def handle_message(event):
                                 ]
                             }
                         }
-                        bubbles.append(FlexBubble.from_dict(bubble_data))
+                        bubbles.append(bubble_data)
 
-                    carousel = FlexCarousel(contents=bubbles)
-                    flex_message = FlexMessage(alt_text="公廁排行榜", contents=carousel)
+                    # 使用字典格式創建 Flex Message
+                    flex_content = {
+                        "type": "carousel",
+                        "contents": bubbles
+                    }
+                    
+                    flex_message = FlexMessage(alt_text="公廁排行榜", contents=flex_content)
                     line_bot_api.reply_message(
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
