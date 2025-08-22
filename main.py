@@ -85,7 +85,7 @@ def init_google_sheet():
                     'https://www.googleapis.com/auth/drive']
             creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
             client = gspread.authorize(creds)
-            sheet_id = os.getenv("GOOGLE_SHEET_ID", "1WgWnSofHnYnA40HhucWN9HzbcglkOF9-RqAgNyNAyng")
+            sheet_id = os.getenv("GOOGLE_SHEET_ID")
             sheet = client.open_by_key(sheet_id).sheet1
             print("Google Sheet 連線成功 (環境變數)")
             return sheet
