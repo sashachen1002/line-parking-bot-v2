@@ -39,9 +39,9 @@ llm_api_base = os.getenv("LLM_API_BASE", "http://localhost:8000")
 executor = ThreadPoolExecutor(max_workers=8)
 _requests_session = requests.Session()
 
-# 用戶狀態管理
+# 用戶狀態管理 - 使用全域變數確保狀態持續性
 user_state = {}
-user_location = {}
+user_location = {}  # 全域位置儲存
 user_selected_toilet = {}
 
 # === 連線 Google Sheet ===
@@ -71,7 +71,6 @@ sheet = init_google_sheet()
 try:
     toilet_df = pd.read_csv("data/臺北市公廁點位資訊.csv")
     print(f"成功載入 {len(toilet_df)} 筆公廁資料")
-    print(f"欄位名稱: {list(toilet_df.columns)}")
 except Exception as e:
     print(f"載入公廁資料失敗: {e}")
     toilet_df = pd.DataFrame()
@@ -79,6 +78,9 @@ except Exception as e:
 # === AI 相關函數 ===
 def call_llm(user_id: str, query: str) -> str:
     try:
+        if not llm_api_base or llm_api_base == "http://localhost:8000":
+            return "AI 功能暫時未設定，請使用選單功能查詢停車場或公廁資訊"
+            
         r = _requests_session.get(
             f"{llm_api_base}/chat",
             params={"user_id": user_id, "query": query},
@@ -87,6 +89,7 @@ def call_llm(user_id: str, query: str) -> str:
         r.raise_for_status()
         return r.text.strip()
     except Exception as e:
+        print(f"LLM 呼叫失敗: {e}")
         return "AI 暫時無法回應，請稍後再試"
 
 def process_and_push_text(user_id: str, user_id_with_session: str, query: str):
@@ -133,7 +136,8 @@ def health_check():
         "toilet_data_loaded": len(toilet_df) > 0,
         "toilet_rows": len(toilet_df),
         "google_sheet_connected": sheet is not None,
-        "columns": list(toilet_df.columns) if not toilet_df.empty else []
+        "user_states": len(user_state),
+        "user_locations": len(user_location)
     }
 
 @handler.add(MessageEvent, message=TextMessage)
@@ -142,11 +146,13 @@ def handle_message(event):
     text = event.message.text.strip()
     
     print(f"收到訊息: '{text}' from {user_id}")
+    print(f"當前用戶狀態: {user_state.get(user_id, '無狀態')}")
+    print(f"用戶位置記錄: {'有' if user_location.get(user_id) else '無'}")
 
     # === 評分相關 ===
     if text.startswith("評分準備|"):
         try:
-            _, toilet_name, toilet_address = text.split("|")
+            _, toilet_name, toilet_address = text.split("|", 2)  # 限制分割數量
             user_selected_toilet[user_id] = {"name": toilet_name, "address": toilet_address}
             quick_reply = QuickReply(items=[
                 QuickReplyButton(action=MessageAction(label="💩", text="評分_1")),
@@ -183,7 +189,7 @@ def handle_message(event):
         return
 
     # === 停車場查詢 ===
-    if text == "尋找附近停車位":
+    elif text == "尋找附近停車位":
         print("進入停車場查詢")
         if user_location.get(user_id):
             quick_reply = QuickReply(items=[
@@ -196,6 +202,7 @@ def handle_message(event):
             )
         else:
             user_state[user_id] = "等待位置_停車場"
+            print(f"設定用戶狀態: {user_state[user_id]}")
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請提供位置資訊，讓我幫你找附近的停車場！"))
         return
 
@@ -206,11 +213,12 @@ def handle_message(event):
         
     elif text == "停車位_重新定位":
         user_state[user_id] = "等待位置_停車場"
+        print(f"設定用戶狀態: {user_state[user_id]}")
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請提供新的位置資訊，讓我幫你找附近的停車場！"))
         return
 
     # === 公廁查詢 ===
-    if text == "查詢公共廁所":
+    elif text == "查詢公共廁所":
         print("進入公廁查詢")
         if user_location.get(user_id):
             quick_reply = QuickReply(items=[
@@ -223,6 +231,7 @@ def handle_message(event):
             )
         else:
             user_state[user_id] = "等待位置_公共廁所"
+            print(f"設定用戶狀態: {user_state[user_id]}")
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請提供位置資訊，讓我幫你找附近的公共廁所！"))
         return
 
@@ -231,16 +240,17 @@ def handle_message(event):
         if user_location.get(user_id):
             send_toilet_info(event, user_location[user_id])
         else:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="找不到之前的位置資訊"))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="找不到之前的位置資訊，請重新傳送位置"))
         return
         
     elif text == "廁所_重新定位":
         user_state[user_id] = "等待位置_公共廁所"
+        print(f"設定用戶狀態: {user_state[user_id]}")
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請提供新的位置資訊，讓我幫你找附近的公共廁所！"))
         return
 
     # === 排行榜查詢 ===
-    if text == "查看排行":
+    elif text == "查看排行":
         print("進入排行榜查詢")
         if not sheet:
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="無法連接評分資料庫，請先設定 Google Sheets"))
@@ -280,43 +290,69 @@ def handle_message(event):
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="查看排行發生錯誤"))
         return
 
+    # === 使用說明 ===
+    elif text == "使用說明":
+        help_text = """
+🔍 LINE Bot 使用說明
+
+📍 主要功能：
+• 查詢公共廁所 - 找附近的公廁
+• 尋找附近停車位 - 找停車場
+• 查看排行 - 查看公廁評分排名
+
+💡 使用方式：
+1. 點擊下方選單或輸入關鍵字
+2. 傳送位置資訊
+3. 瀏覽查詢結果
+4. 可以對公廁進行評分
+
+❓ 其他功能：
+• 可以和我聊天對話
+• 位置會記住，方便重複查詢
+        """
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=help_text))
+        return
+
     # === AI 處理其他訊息 ===
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text="讓我想想..."))
-    hour_suffix = event_hour_yyyymmddhh(event.timestamp)
-    user_id_with_session = f"{user_id}:{hour_suffix}"
-    executor.submit(process_and_push_text, user_id, user_id_with_session, text)
+    else:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="讓我想想..."))
+        hour_suffix = event_hour_yyyymmddhh(event.timestamp)
+        user_id_with_session = f"{user_id}:{hour_suffix}"
+        executor.submit(process_and_push_text, user_id, user_id_with_session, text)
 
 @handler.add(MessageEvent, message=LocationMessage)
 def handle_location(event):
     user_id = event.source.user_id
     lat, lon = event.message.latitude, event.message.longitude
+    
+    # 儲存位置資訊（全域）
     user_location[user_id] = f"{lat},{lon}"
     
     print(f"收到位置: {lat}, {lon} from {user_id}")
     print(f"用戶狀態: {user_state.get(user_id, '無狀態')}")
+    print(f"位置已儲存: {user_location[user_id]}")
 
-    if user_state.get(user_id) == "等待位置_停車場":
+    current_state = user_state.get(user_id)
+    
+    if current_state == "等待位置_停車場":
         print("處理停車場位置")
         send_parking_info(event)
+        # 清除狀態但保留位置
         user_state[user_id] = None
         
-    elif user_state.get(user_id) == "等待位置_公共廁所":
+    elif current_state == "等待位置_公共廁所":
         print("處理公廁位置")
         send_toilet_info(event, user_location[user_id])
+        # 清除狀態但保留位置
         user_state[user_id] = None
         
     else:
-        print("沒有對應狀態，使用 AI 處理")
-        # 沒有特定狀態，使用 AI 處理位置訊息
-        city = getattr(event.message, 'title', '') or ""
-        address = getattr(event.message, 'address', '') or ""
-        query = f"緯度：{lat}, 經度：{lon} {city} {address} 這個位置有什麼特色或附近有什麼"
-        
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="收到位置資訊，讓我看看這附近有什麼～"))
-        
-        hour_suffix = event_hour_yyyymmddhh(event.timestamp)
-        user_id_with_session = f"{user_id}:{hour_suffix}"
-        executor.submit(process_and_push_text, user_id, user_id_with_session, query)
+        print("沒有對應狀態，提供位置確認訊息")
+        # 沒有特定狀態時，提供簡單的確認訊息
+        line_bot_api.reply_message(
+            event.reply_token, 
+            TextSendMessage(text="已記住你的位置！請使用選單功能查詢停車場或公廁資訊。")
+        )
 
 def send_parking_info(event):
     print("開始生成停車場卡片")
