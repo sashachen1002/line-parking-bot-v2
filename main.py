@@ -20,16 +20,12 @@ import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# === Utils (你需要確保這個模組存在) ===
-try:
-    from utils.utils import normalize_llm_text, event_hour_yyyymmddhh
-except ImportError:
-    # 如果 utils 模組不存在，提供預設實作
-    def normalize_llm_text(text):
-        return text.strip()
-    
-    def event_hour_yyyymmddhh(timestamp):
-        return datetime.fromtimestamp(timestamp / 1000).strftime('%Y%m%d%H')
+# === Utils ===
+def normalize_llm_text(text):
+    return text.strip()
+
+def event_hour_yyyymmddhh(timestamp):
+    return datetime.fromtimestamp(timestamp / 1000).strftime('%Y%m%d%H')
 
 # === 初始化 Flask ===
 load_dotenv()
@@ -46,12 +42,11 @@ _requests_session = requests.Session()
 # 用戶狀態管理
 user_state = {}
 user_location = {}
-user_selected_toilet = {}  # 紀錄使用者要評分的廁所
+user_selected_toilet = {}
 
-# === 連線 Google Sheet (安全版本) ===
+# === 連線 Google Sheet ===
 def init_google_sheet():
     try:
-        # 方法 1: 從環境變數讀取 JSON 內容
         google_credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
         if google_credentials_json:
             creds_dict = json.loads(google_credentials_json)
@@ -63,38 +58,25 @@ def init_google_sheet():
             sheet = client.open_by_key(sheet_id).sheet1
             print("Google Sheet 連線成功 (環境變數)")
             return sheet
-        
-        # 方法 2: 如果是本地開發，嘗試讀取檔案
-        elif os.path.exists('data/tranquil-apogee-424105-h3-e118373644f0.json'):
-            scope = ['https://spreadsheets.google.com/feeds']
-            creds = ServiceAccountCredentials.from_json_keyfile_name(
-                'data/tranquil-apogee-424105-h3-e118373644f0.json', scope)
-            client = gspread.authorize(creds)
-            sheet_id = os.getenv("GOOGLE_SHEET_ID", "1WgWnSofHnYnA40HhucWN9HzbcglkOF9-RqAgNyNAyng")
-            sheet = client.open_by_key(sheet_id).sheet1
-            print("Google Sheet 連線成功 (本地檔案)")
-            return sheet
-        
         else:
-            print("Google Sheet 憑證未設定 - 評分功能將無法使用")
+            print("Google Sheet 憑證未設定")
             return None
-            
     except Exception as e:
         print(f"Google Sheet 連線失敗: {e}")
         return None
 
-# 初始化 Google Sheet
 sheet = init_google_sheet()
 
 # === 載入公廁資料 ===
 try:
     toilet_df = pd.read_csv("data/臺北市公廁點位資訊.csv")
-    print(f"成功載入 {len(toilet_df)} 筆公廁資料")
+    print(f"✅ 成功載入 {len(toilet_df)} 筆公廁資料")
+    print(f"欄位名稱: {list(toilet_df.columns)}")
 except Exception as e:
-    print(f"載入公廁資料失敗: {e}")
+    print(f"❌ 載入公廁資料失敗: {e}")
     toilet_df = pd.DataFrame()
 
-# === AI Chatbot 相關函數 ===
+# === AI 相關函數 ===
 def call_llm(user_id: str, query: str) -> str:
     try:
         r = _requests_session.get(
@@ -104,26 +86,25 @@ def call_llm(user_id: str, query: str) -> str:
         )
         r.raise_for_status()
         return r.text.strip()
-    except requests.exceptions.RequestException as e:
-        app.logger.error(f"LLM 呼叫失敗：{e}")
-        return "有一些問題發生 ... 請稍後再試"
+    except Exception as e:
+        return "AI 暫時無法回應，請稍後再試"
 
 def process_and_push_text(user_id: str, user_id_with_session: str, query: str):
-    answer = call_llm(user_id=user_id_with_session, query=query)
-    answer = normalize_llm_text(answer)
     try:
+        answer = call_llm(user_id=user_id_with_session, query=query)
+        answer = normalize_llm_text(answer)
         line_bot_api.push_message(user_id, TextSendMessage(text=answer))
     except Exception as e:
-        app.logger.error(f"Push message 失敗: {e}")
+        print(f"Push message 失敗: {e}")
 
-# === Haversine 計算距離 ===
+# === 距離計算 ===
 def haversine(lat1, lon1, lat2, lon2):
-    R = 6371  # 地球半徑 (公里)
+    R = 6371
     dlat = radians(lat2 - lat1)
     dlon = radians(lon2 - lon1)
     a = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2)**2
     c = 2 * atan2(sqrt(a), sqrt(1 - a))
-    return R * c * 1000  # 回傳公尺
+    return R * c * 1000
 
 def find_nearby_toilets(lat, lon, top_n=5):
     if toilet_df.empty:
@@ -145,21 +126,85 @@ def callback():
         abort(400)
     return 'OK'
 
-# ===== 統一文字訊息處理 =====
+@app.route("/health", methods=["GET"])
+def health_check():
+    return {
+        "status": "healthy",
+        "toilet_data_loaded": len(toilet_df) > 0,
+        "toilet_rows": len(toilet_df),
+        "google_sheet_connected": sheet is not None,
+        "columns": list(toilet_df.columns) if not toilet_df.empty else []
+    }
+
+# ===== 除錯測試函數 =====
+def test_simple_flex():
+    """測試最簡單的 Flex Message"""
+    return {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {"type": "text", "text": "測試卡片", "weight": "bold", "size": "xl"},
+                {"type": "text", "text": "如果你看到這個，代表 Flex Message 正常運作！", "wrap": True}
+            ]
+        }
+    }
+
+def test_simple_carousel():
+    """測試簡單的 Carousel"""
+    bubbles = []
+    for i in range(3):
+        bubble = {
+            "type": "bubble",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {"type": "text", "text": f"卡片 {i+1}", "weight": "bold", "size": "xl"},
+                    {"type": "text", "text": f"這是第 {i+1} 張測試卡片", "wrap": True}
+                ]
+            }
+        }
+        bubbles.append(bubble)
+    
+    return {"type": "carousel", "contents": bubbles}
+
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_id = event.source.user_id
     text = event.message.text.strip()
+    
+    print(f"收到訊息: '{text}' from {user_id}")
 
-    # --- 評分準備 ---
+    # === 除錯測試命令 ===
+    if text == "測試卡片":
+        flex_content = test_simple_flex()
+        flex_message = FlexSendMessage(alt_text="測試卡片", contents=flex_content)
+        line_bot_api.reply_message(event.reply_token, flex_message)
+        return
+    
+    if text == "測試輪播":
+        flex_content = test_simple_carousel()
+        flex_message = FlexSendMessage(alt_text="測試輪播", contents=flex_content)
+        line_bot_api.reply_message(event.reply_token, flex_message)
+        return
+    
+    if text == "檢查資料":
+        info_text = f"""
+資料檢查結果：
+📊 公廁資料：{len(toilet_df)} 筆
+🔗 Google Sheet：{'已連線' if sheet else '未連線'}
+📁 欄位：{list(toilet_df.columns)[:5] if not toilet_df.empty else '無資料'}
+        """.strip()
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=info_text))
+        return
+
+    # === 評分相關 ===
     if text.startswith("評分準備|"):
         try:
             _, toilet_name, toilet_address = text.split("|")
-            user_selected_toilet[user_id] = {
-                "name": toilet_name,
-                "address": toilet_address
-            }
-
+            user_selected_toilet[user_id] = {"name": toilet_name, "address": toilet_address}
             quick_reply = QuickReply(items=[
                 QuickReplyButton(action=MessageAction(label="💩", text="評分_1")),
                 QuickReplyButton(action=MessageAction(label="💩💩", text="評分_2")),
@@ -171,11 +216,11 @@ def handle_message(event):
                 event.reply_token,
                 TextSendMessage(text=f"你選擇評分的廁所是：「{toilet_name}」，請給分（💩越多越讚）：", quick_reply=quick_reply)
             )
-        except ValueError:
+        except Exception as e:
+            print(f"評分準備錯誤: {e}")
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="評分格式錯誤"))
         return
 
-    # --- 使用者評分 ---
     elif text.startswith("評分_"):
         try:
             score = int(text.split("_")[1])
@@ -190,11 +235,13 @@ def handle_message(event):
             else:
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請先選擇要評分的廁所。"))
         except Exception as e:
+            print(f"評分錯誤: {e}")
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="評分發生錯誤"))
         return
 
-    # --- 尋找停車位 ---
+    # === 停車場查詢 ===
     if text == "尋找附近停車位":
+        print("進入停車場查詢")
         if user_location.get(user_id):
             quick_reply = QuickReply(items=[
                 QuickReplyButton(action=MessageAction(label="用原本位置", text="停車位_原位置")),
@@ -210,15 +257,18 @@ def handle_message(event):
         return
 
     elif text == "停車位_原位置":
+        print("使用原位置查詢停車場")
         send_parking_info(event)
         return
+        
     elif text == "停車位_重新定位":
         user_state[user_id] = "等待位置_停車場"
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請提供新的位置資訊，讓我幫你找附近的停車場！"))
         return
 
-    # --- 查詢公共廁所 ---
+    # === 公廁查詢 ===
     if text == "查詢公共廁所":
+        print("進入公廁查詢")
         if user_location.get(user_id):
             quick_reply = QuickReply(items=[
                 QuickReplyButton(action=MessageAction(label="用原本位置", text="廁所_原位置")),
@@ -234,187 +284,127 @@ def handle_message(event):
         return
 
     elif text == "廁所_原位置":
-        send_toilet_info(event, user_location[user_id])
+        print("使用原位置查詢公廁")
+        if user_location.get(user_id):
+            send_toilet_info(event, user_location[user_id])
+        else:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="找不到之前的位置資訊"))
         return
+        
     elif text == "廁所_重新定位":
         user_state[user_id] = "等待位置_公共廁所"
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請提供新的位置資訊，讓我幫你找附近的公共廁所！"))
         return
 
-    # --- 查看排行榜 ---
+    # === 排行榜查詢 ===
     if text == "查看排行":
+        print("進入排行榜查詢")
         if not sheet:
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="無法連接評分資料庫"))
             return
 
         try:
-            data = sheet.get_all_values()
-            if len(data) > 1:  # 有資料
-                df = pd.DataFrame(data[1:], columns=data[0])
-                df["評分"] = df["評分"].astype(float)
-                avg_score = df.groupby("地點")["評分"].mean().reset_index()
-                avg_score = avg_score.sort_values("評分", ascending=False).head(5)
-
-                bubbles = []
-                for idx, row in avg_score.iterrows():
-                    bubble = {
-                        "type": "bubble",
-                        "body": {
-                            "type": "box",
-                            "layout": "vertical",
-                            "contents": [
-                                {"type": "text", "text": f"🏆 No.{len(bubbles)+1}", "weight": "bold", "size": "lg"},
-                                {"type": "text", "text": row["地點"], "weight": "bold", "size": "xl", "wrap": True},
-                                {"type": "text", "text": f"平均分數：{round(row['評分'],1)} 💩", "size": "md", "color": "#666666"}
-                            ]
-                        }
-                    }
-                    bubbles.append(bubble)
-
-                flex_message = FlexSendMessage(alt_text="公廁排行榜", contents={"type": "carousel", "contents": bubbles})
-                line_bot_api.reply_message(event.reply_token, flex_message)
-            else:
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="目前還沒有任何評分紀錄。"))
+            # 測試：先顯示簡單的排行榜
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="排行榜功能開發中，請先使用其他功能"))
+            return
         except Exception as e:
-            app.logger.error(f"查看排行發生錯誤: {e}")
+            print(f"排行榜錯誤: {e}")
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="查看排行發生錯誤"))
         return
 
-    # --- 其他訊息：使用 AI Chatbot 處理 ---
-    # 立刻回覆簡短訊息，避免 reply token 超時
+    # === AI 處理其他訊息 ===
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text="讓我想想..."))
-    
-    # 把 AI 處理丟到背景
     hour_suffix = event_hour_yyyymmddhh(event.timestamp)
     user_id_with_session = f"{user_id}:{hour_suffix}"
     executor.submit(process_and_push_text, user_id, user_id_with_session, text)
 
-# ===== 位置訊息處理 =====
 @handler.add(MessageEvent, message=LocationMessage)
 def handle_location(event):
     user_id = event.source.user_id
     lat, lon = event.message.latitude, event.message.longitude
     user_location[user_id] = f"{lat},{lon}"
+    
+    print(f"收到位置: {lat}, {lon} from {user_id}")
 
     if user_state.get(user_id) == "等待位置_停車場":
-        # 使用 AI 來處理停車場查詢
+        print("處理停車場位置")
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="收到定位，我來幫你找停車場～"))
         
-        city = getattr(event.message, 'title', '') or ""
-        address = getattr(event.message, 'address', '') or ""
-        query = f"緯度：{lat}, 經度：{lon} {city} {address} 附近有什麼停車場"
-        
-        hour_suffix = event_hour_yyyymmddhh(event.timestamp)
-        user_id_with_session = f"{user_id}:{hour_suffix}"
-        executor.submit(process_and_push_text, user_id, user_id_with_session, query)
+        # 這裡暫時不用 AI，直接顯示測試卡片
+        send_parking_info(event)
         user_state[user_id] = None
         
     elif user_state.get(user_id) == "等待位置_公共廁所":
+        print("處理公廁位置")
         send_toilet_info(event, user_location[user_id])
         user_state[user_id] = None
     else:
-        # 沒有特定狀態，使用 AI 處理位置訊息
-        city = getattr(event.message, 'title', '') or ""
-        address = getattr(event.message, 'address', '') or ""
-        query = f"緯度：{lat}, 經度：{lon} {city} {address} 這個位置有什麼特色或附近有什麼"
-        
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="收到位置資訊，讓我看看這附近有什麼～"))
-        
-        hour_suffix = event_hour_yyyymmddhh(event.timestamp)
-        user_id_with_session = f"{user_id}:{hour_suffix}"
-        executor.submit(process_and_push_text, user_id, user_id_with_session, query)
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="收到位置資訊！"))
 
-# ===== 停車場資料（範例） =====
 def send_parking_info(event):
-    dict_result = [
-        {
-            'name': '附中公園地下停車場',
-            'type': '路外停車場',
-            'available_seats': '3',
-            'cost': '- 小型車（含大型重型機車）：\n- 白天（08:00-21:00）：50元/小時\n- 夜間（21:00-08:00）：10元/小時'
-        },
-        {
-            'name': '大安高工地下停車場',
-            'type': '路外停車場',
-            'available_seats': '124',
-            'cost': '- 小型車及大型重型機車: \n - 白天（09:00-21:00）：50元/小時 \n- 夜間（21:00-09:00）：10元/小時'
-        }
-    ]
-
-    bubbles = []
-    for info in dict_result:
-        google_url = 'https://www.google.com/maps/search/?api=1&query=' + quote(info['name'])
+    print("開始生成停車場卡片")
+    try:
+        # 最簡單的測試卡片
         bubble = {
             "type": "bubble",
-            "hero": {"type": "image", "url": "https://developers-resource.landpress.line.me/fx/img/01_1_cafe.png",
-                     "size": "full", "aspectRatio": "20:13", "aspectMode": "cover"},
             "body": {
                 "type": "box",
                 "layout": "vertical",
                 "contents": [
-                    {"type": "text", "text": info["name"], "weight": "bold", "size": "xl"},
-                    {"type": "text", "text": f"類型：{info['type']}", "size": "sm", "color": "#666666"},
-                    {"type": "text", "text": f"空位：{info['available_seats']}", "size": "sm", "color": "#666666"},
-                    {"type": "text", "text": f"費率：{info['cost']}", "size": "xxs", "wrap": True, "color": "#666666"}
+                    {"type": "text", "text": "測試停車場", "weight": "bold", "size": "xl"},
+                    {"type": "text", "text": "這是停車場測試卡片", "wrap": True},
+                    {"type": "text", "text": "如果你看到這個卡片，代表停車場功能正常！", "wrap": True}
                 ]
-            },
-            "footer": {"type": "box", "layout": "vertical", "contents": [
-                {"type": "button", "style": "link", "height": "sm",
-                 "action": {"type": "uri", "label": "Google Map", "uri": google_url}}
-            ]}
+            }
         }
-        bubbles.append(bubble)
+        
+        flex_message = FlexSendMessage(alt_text="停車場資訊", contents=bubble)
+        line_bot_api.reply_message(event.reply_token, flex_message)
+        print("停車場卡片發送成功")
+    except Exception as e:
+        print(f"停車場卡片發送失敗: {e}")
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"停車場功能錯誤: {str(e)}"))
 
-    flex_message = FlexSendMessage(alt_text="附近停車場清單", contents={"type": "carousel", "contents": bubbles})
-    line_bot_api.reply_message(event.reply_token, flex_message)
-
-# ===== 公共廁所資料 =====
 def send_toilet_info(event, location):
-    if toilet_df.empty:
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="抱歉，無法載入公廁資料"))
-        return
+    print(f"開始生成公廁卡片，位置: {location}")
+    try:
+        if toilet_df.empty:
+            print("公廁資料為空")
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="抱歉，無法載入公廁資料"))
+            return
 
-    lat, lon = map(float, location.split(","))
-    nearby = find_nearby_toilets(lat, lon)
+        lat, lon = map(float, location.split(","))
+        print(f"解析位置: {lat}, {lon}")
+        
+        nearby = find_nearby_toilets(lat, lon)
+        print(f"找到 {len(nearby)} 個附近公廁")
 
-    if nearby.empty:
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="附近沒有找到公廁資料"))
-        return
+        if nearby.empty:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="附近沒有找到公廁資料"))
+            return
 
-    bubbles = []
-    for _, t in nearby.iterrows():
+        # 先測試一個簡單的卡片
+        first_toilet = nearby.iloc[0]
         bubble = {
             "type": "bubble",
             "body": {
                 "type": "box",
                 "layout": "vertical",
                 "contents": [
-                    {"type": "text", "text": str(t["公廁名稱"]), "weight": "bold", "size": "xl"},
-                    {"type": "text", "text": f"地址：{t['公廁地址']}", "size": "sm", "wrap": True, "color": "#666666"},
-                    {"type": "text", "text": f"距離：約 {int(t['距離'])} 公尺", "size": "sm", "color": "#666666"},
-                    {"type": "text", "text": f"總座數：{int(t['座數'])}", "size": "sm", "color": "#666666"},
-                    {"type": "text", "text": f"無障礙廁座數：{int(t['無障礙廁座數'])}", "size": "sm", "color": "#666666"},
-                    {"type": "text", "text": f"親子廁座數：{int(t['親子廁座數'])}", "size": "sm", "color": "#666666"},
+                    {"type": "text", "text": str(first_toilet["公廁名稱"]), "weight": "bold", "size": "xl"},
+                    {"type": "text", "text": f"地址：{first_toilet['公廁地址']}", "size": "sm", "wrap": True},
+                    {"type": "text", "text": f"距離：約 {int(first_toilet['距離'])} 公尺", "size": "sm"}
                 ]
-            },
-            "footer": {"type": "box", "layout": "vertical", "contents": [
-                {"type": "button", "style": "link", "height": "sm",
-                 "action": {"type": "uri", "label": "Google Map",
-                            "uri": f"https://www.google.com/maps/search/?api=1&query={t['緯度']},{t['經度']}"}},
-                {
-                    "type": "button",
-                    "action": {
-                        "type": "message",
-                        "label": "我要評分💩",
-                        "text": f"評分準備|{t['公廁名稱']}|{t['公廁地址']}"
-                    }
-                }
-            ]}
+            }
         }
-        bubbles.append(bubble)
 
-    flex_message = FlexSendMessage(alt_text="附近公共廁所清單", contents={"type": "carousel", "contents": bubbles})
-    line_bot_api.reply_message(event.reply_token, flex_message)
+        flex_message = FlexSendMessage(alt_text="附近公廁", contents=bubble)
+        line_bot_api.reply_message(event.reply_token, flex_message)
+        print("公廁卡片發送成功")
+        
+    except Exception as e:
+        print(f"公廁卡片發送失敗: {e}")
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"公廁功能錯誤: {str(e)}"))
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
