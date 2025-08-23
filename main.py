@@ -70,10 +70,10 @@ sheet = init_google_sheet()
 # === 載入公廁資料 ===
 try:
     toilet_df = pd.read_csv("data/臺北市公廁點位資訊.csv")
-    print(f"✅ 成功載入 {len(toilet_df)} 筆公廁資料")
+    print(f"成功載入 {len(toilet_df)} 筆公廁資料")
     print(f"欄位名稱: {list(toilet_df.columns)}")
 except Exception as e:
-    print(f"❌ 載入公廁資料失敗: {e}")
+    print(f"載入公廁資料失敗: {e}")
     toilet_df = pd.DataFrame()
 
 # === AI 相關函數 ===
