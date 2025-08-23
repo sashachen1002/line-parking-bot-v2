@@ -136,69 +136,12 @@ def health_check():
         "columns": list(toilet_df.columns) if not toilet_df.empty else []
     }
 
-# ===== 除錯測試函數 =====
-def test_simple_flex():
-    """測試最簡單的 Flex Message"""
-    return {
-        "type": "bubble",
-        "body": {
-            "type": "box",
-            "layout": "vertical",
-            "contents": [
-                {"type": "text", "text": "測試卡片", "weight": "bold", "size": "xl"},
-                {"type": "text", "text": "如果你看到這個，代表 Flex Message 正常運作！", "wrap": True}
-            ]
-        }
-    }
-
-def test_simple_carousel():
-    """測試簡單的 Carousel"""
-    bubbles = []
-    for i in range(3):
-        bubble = {
-            "type": "bubble",
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                    {"type": "text", "text": f"卡片 {i+1}", "weight": "bold", "size": "xl"},
-                    {"type": "text", "text": f"這是第 {i+1} 張測試卡片", "wrap": True}
-                ]
-            }
-        }
-        bubbles.append(bubble)
-    
-    return {"type": "carousel", "contents": bubbles}
-
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_id = event.source.user_id
     text = event.message.text.strip()
     
     print(f"收到訊息: '{text}' from {user_id}")
-
-    # === 除錯測試命令 ===
-    if text == "測試卡片":
-        flex_content = test_simple_flex()
-        flex_message = FlexSendMessage(alt_text="測試卡片", contents=flex_content)
-        line_bot_api.reply_message(event.reply_token, flex_message)
-        return
-    
-    if text == "測試輪播":
-        flex_content = test_simple_carousel()
-        flex_message = FlexSendMessage(alt_text="測試輪播", contents=flex_content)
-        line_bot_api.reply_message(event.reply_token, flex_message)
-        return
-    
-    if text == "檢查資料":
-        info_text = f"""
-資料檢查結果：
-📊 公廁資料：{len(toilet_df)} 筆
-🔗 Google Sheet：{'已連線' if sheet else '未連線'}
-📁 欄位：{list(toilet_df.columns)[:5] if not toilet_df.empty else '無資料'}
-        """.strip()
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=info_text))
-        return
 
     # === 評分相關 ===
     if text.startswith("評分準備|"):
@@ -300,13 +243,38 @@ def handle_message(event):
     if text == "查看排行":
         print("進入排行榜查詢")
         if not sheet:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="無法連接評分資料庫"))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="無法連接評分資料庫，請先設定 Google Sheets"))
             return
 
         try:
-            # 測試：先顯示簡單的排行榜
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="排行榜功能開發中，請先使用其他功能"))
-            return
+            data = sheet.get_all_values()
+            if len(data) > 1:  # 有資料
+                df = pd.DataFrame(data[1:], columns=data[0])
+                df["評分"] = df["評分"].astype(float)
+                avg_score = df.groupby("地點")["評分"].mean().reset_index()
+                avg_score = avg_score.sort_values("評分", ascending=False).head(5)
+
+                bubbles = []
+                for idx, row in avg_score.iterrows():
+                    bubble = {
+                        "type": "bubble",
+                        "body": {
+                            "type": "box",
+                            "layout": "vertical",
+                            "contents": [
+                                {"type": "text", "text": f"🏆 No.{len(bubbles)+1}", "weight": "bold", "size": "lg"},
+                                {"type": "text", "text": row["地點"], "weight": "bold", "size": "xl", "wrap": True},
+                                {"type": "text", "text": f"平均分數：{round(row['評分'],1)} 💩", "size": "md", "color": "#666666"}
+                            ]
+                        }
+                    }
+                    bubbles.append(bubble)
+
+                flex_content = {"type": "carousel", "contents": bubbles}
+                flex_message = FlexSendMessage(alt_text="公廁排行榜", contents=flex_content)
+                line_bot_api.reply_message(event.reply_token, flex_message)
+            else:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="目前還沒有任何評分紀錄。"))
         except Exception as e:
             print(f"排行榜錯誤: {e}")
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="查看排行發生錯誤"))
@@ -325,12 +293,10 @@ def handle_location(event):
     user_location[user_id] = f"{lat},{lon}"
     
     print(f"收到位置: {lat}, {lon} from {user_id}")
+    print(f"用戶狀態: {user_state.get(user_id, '無狀態')}")
 
     if user_state.get(user_id) == "等待位置_停車場":
         print("處理停車場位置")
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="收到定位，我來幫你找停車場～"))
-        
-        # 這裡暫時不用 AI，直接顯示測試卡片
         send_parking_info(event)
         user_state[user_id] = None
         
@@ -338,29 +304,80 @@ def handle_location(event):
         print("處理公廁位置")
         send_toilet_info(event, user_location[user_id])
         user_state[user_id] = None
+        
     else:
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="收到位置資訊！"))
+        print("沒有對應狀態，使用 AI 處理")
+        # 沒有特定狀態，使用 AI 處理位置訊息
+        city = getattr(event.message, 'title', '') or ""
+        address = getattr(event.message, 'address', '') or ""
+        query = f"緯度：{lat}, 經度：{lon} {city} {address} 這個位置有什麼特色或附近有什麼"
+        
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="收到位置資訊，讓我看看這附近有什麼～"))
+        
+        hour_suffix = event_hour_yyyymmddhh(event.timestamp)
+        user_id_with_session = f"{user_id}:{hour_suffix}"
+        executor.submit(process_and_push_text, user_id, user_id_with_session, query)
 
 def send_parking_info(event):
     print("開始生成停車場卡片")
     try:
-        # 最簡單的測試卡片
-        bubble = {
-            "type": "bubble",
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                    {"type": "text", "text": "測試停車場", "weight": "bold", "size": "xl"},
-                    {"type": "text", "text": "這是停車場測試卡片", "wrap": True},
-                    {"type": "text", "text": "如果你看到這個卡片，代表停車場功能正常！", "wrap": True}
-                ]
+        dict_result = [
+            {
+                'name': '附中公園地下停車場',
+                'type': '路外停車場',
+                'available_seats': '3',
+                'cost': '白天 50元/小時\n夜間 10元/小時'
+            },
+            {
+                'name': '大安高工地下停車場',
+                'type': '路外停車場',  
+                'available_seats': '124',
+                'cost': '白天 50元/小時\n夜間 10元/小時'
             }
-        }
-        
-        flex_message = FlexSendMessage(alt_text="停車場資訊", contents=bubble)
+        ]
+
+        bubbles = []
+        for info in dict_result:
+            google_url = 'https://www.google.com/maps/search/?api=1&query=' + quote(info['name'])
+            bubble = {
+                "type": "bubble",
+                "hero": {
+                    "type": "image", 
+                    "url": "https://developers-resource.landpress.line.me/fx/img/01_1_cafe.png",
+                    "size": "full", 
+                    "aspectRatio": "20:13", 
+                    "aspectMode": "cover"
+                },
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {"type": "text", "text": info["name"], "weight": "bold", "size": "xl", "wrap": True},
+                        {"type": "text", "text": f"類型：{info['type']}", "size": "sm", "color": "#666666"},
+                        {"type": "text", "text": f"空位：{info['available_seats']}", "size": "sm", "color": "#666666"},
+                        {"type": "text", "text": f"費率：{info['cost']}", "size": "sm", "wrap": True, "color": "#666666"}
+                    ]
+                },
+                "footer": {
+                    "type": "box", 
+                    "layout": "vertical", 
+                    "contents": [
+                        {
+                            "type": "button", 
+                            "style": "link", 
+                            "height": "sm",
+                            "action": {"type": "uri", "label": "Google Map", "uri": google_url}
+                        }
+                    ]
+                }
+            }
+            bubbles.append(bubble)
+
+        flex_content = {"type": "carousel", "contents": bubbles}
+        flex_message = FlexSendMessage(alt_text="附近停車場清單", contents=flex_content)
         line_bot_api.reply_message(event.reply_token, flex_message)
         print("停車場卡片發送成功")
+        
     except Exception as e:
         print(f"停車場卡片發送失敗: {e}")
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"停車場功能錯誤: {str(e)}"))
@@ -383,22 +400,54 @@ def send_toilet_info(event, location):
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="附近沒有找到公廁資料"))
             return
 
-        # 先測試一個簡單的卡片
-        first_toilet = nearby.iloc[0]
-        bubble = {
-            "type": "bubble",
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                    {"type": "text", "text": str(first_toilet["公廁名稱"]), "weight": "bold", "size": "xl"},
-                    {"type": "text", "text": f"地址：{first_toilet['公廁地址']}", "size": "sm", "wrap": True},
-                    {"type": "text", "text": f"距離：約 {int(first_toilet['距離'])} 公尺", "size": "sm"}
-                ]
+        # 建立完整的 Carousel，包含所有找到的公廁
+        bubbles = []
+        for _, t in nearby.iterrows():
+            bubble = {
+                "type": "bubble",
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {"type": "text", "text": str(t["公廁名稱"]), "weight": "bold", "size": "xl", "wrap": True},
+                        {"type": "text", "text": f"地址：{t['公廁地址']}", "size": "sm", "wrap": True, "color": "#666666"},
+                        {"type": "text", "text": f"距離：約 {int(t['距離'])} 公尺", "size": "sm", "color": "#666666"},
+                        {"type": "text", "text": f"總座數：{int(t['座數'])}", "size": "sm", "color": "#666666"},
+                        {"type": "text", "text": f"無障礙廁座數：{int(t['無障礙廁座數'])}", "size": "sm", "color": "#666666"},
+                        {"type": "text", "text": f"親子廁座數：{int(t['親子廁座數'])}", "size": "sm", "color": "#666666"}
+                    ]
+                },
+                "footer": {
+                    "type": "box", 
+                    "layout": "vertical", 
+                    "contents": [
+                        {
+                            "type": "button", 
+                            "style": "link", 
+                            "height": "sm",
+                            "action": {
+                                "type": "uri", 
+                                "label": "Google Map",
+                                "uri": f"https://www.google.com/maps/search/?api=1&query={t['緯度']},{t['經度']}"
+                            }
+                        },
+                        {
+                            "type": "button",
+                            "style": "primary",
+                            "height": "sm",
+                            "action": {
+                                "type": "message",
+                                "label": "我要評分💩",
+                                "text": f"評分準備|{t['公廁名稱']}|{t['公廁地址']}"
+                            }
+                        }
+                    ]
+                }
             }
-        }
+            bubbles.append(bubble)
 
-        flex_message = FlexSendMessage(alt_text="附近公廁", contents=bubble)
+        flex_content = {"type": "carousel", "contents": bubbles}
+        flex_message = FlexSendMessage(alt_text="附近公共廁所清單", contents=flex_content)
         line_bot_api.reply_message(event.reply_token, flex_message)
         print("公廁卡片發送成功")
         
